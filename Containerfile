@@ -8,8 +8,6 @@ ARG BASE_VERSION=15.1
 ARG APP_VERSION=""
 ARG UPSTREAM_URL="https://api.github.com/repos/rustfs/rustfs/releases/latest"
 ARG UPSTREAM_JQ=".tag_name"
-ARG CONSOLE_URL="https://api.github.com/repos/rustfs/console/releases/latest"
-ARG CONSOLE_JQ=".tag_name"
 
 # ---------------------------------------------------------------------------
 # Builder: Rust 1.99+ toolchain on 15.1-latest.
@@ -20,10 +18,6 @@ ARG BUILDER_BASE_VERSION=15.1-latest
 FROM ghcr.io/daemonless/base-exec:${BUILDER_BASE_VERSION} AS builder
 
 ARG APP_VERSION
-ARG UPSTREAM_URL
-ARG UPSTREAM_JQ
-ARG CONSOLE_URL
-ARG CONSOLE_JQ
 
 RUN pkg update && \
     pkg install -y FreeBSD-set-devel rust pkgconf protobuf cmake-core zstd && \
@@ -31,11 +25,11 @@ RUN pkg update && \
     rm -rf /var/cache/pkg/* /var/db/pkg/repos/*
 
 RUN if [ -z "${APP_VERSION}" ]; then \
-      APP_VERSION=$(fetch -qo - "${UPSTREAM_URL}" | jq -r "${UPSTREAM_JQ}"); \
+      APP_VERSION=$(fetch -v -o /dev/null "https://github.com/rustfs/rustfs/releases/latest" 2>&1 | sed -n 's|^.*redirect to .*/releases/tag/||p' | head -1); \
     fi && \
-    CONSOLE_TAG=$(fetch -qo - "${CONSOLE_URL}" | jq -r "${CONSOLE_JQ}") && \
-    test -n "${APP_VERSION}" -a "${APP_VERSION}" != "null" && \
-    test -n "${CONSOLE_TAG}" -a "${CONSOLE_TAG}" != "null" && \
+    CONSOLE_TAG=$(fetch -v -o /dev/null "https://github.com/rustfs/console/releases/latest" 2>&1 | sed -n 's|^.*redirect to .*/releases/tag/||p' | head -1) && \
+    test -n "${APP_VERSION}" && \
+    test -n "${CONSOLE_TAG}" && \
     VERSION="${APP_VERSION#v}" && \
     echo "Building RustFS ${VERSION} with console ${CONSOLE_TAG}" && \
     echo "${VERSION}" > /tmp/version && \
@@ -52,15 +46,20 @@ RUN if [ -z "${APP_VERSION}" ]; then \
     rm -f /tmp/console.zip
 
 WORKDIR /src
+# Upstream sets lto="thin" and codegen-units=1 in Cargo.toml, which peaks
+# above 20 GB RSS at final link and OOM-kills inside the 12 GB CI FreeBSD VM.
 ENV CARGO_INCREMENTAL=0 \
+    CARGO_PROFILE_RELEASE_LTO=off \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     CARGO_PROFILE_RELEASE_DEBUG=false \
     CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off \
     CARGO_PROFILE_RELEASE_STRIP=symbols
 
 RUN VERSION=$(cat /tmp/version) && \
-    RUSTFS_BUILD_VERSION="${VERSION}" cargo build --release --locked --package rustfs && \
-    chmod 0755 /src/target/release/rustfs /src/target/release/rustfs-cli && \
-    /src/target/release/rustfs --version
+    RUSTFS_BUILD_VERSION="${VERSION}" cargo build --release --locked --package rustfs --bin rustfs && \
+    install -m 0755 /src/target/release/rustfs /usr/local/bin/rustfs && \
+    /usr/local/bin/rustfs --version && \
+    rm -rf /src/target /root/.cargo
 
 # ---------------------------------------------------------------------------
 # Runtime
@@ -111,8 +110,7 @@ RUN mkdir -p /app /config /data/.rustfs/events /data/.rustfs/audit /opt/rustfs &
     chmod 0755 /app && \
     chmod 0750 /config /data
 
-COPY --chmod=0755 --from=builder /src/target/release/rustfs /usr/local/bin/rustfs
-COPY --chmod=0755 --from=builder /src/target/release/rustfs-cli /usr/local/bin/rustfs-cli
+COPY --chmod=0755 --from=builder /usr/local/bin/rustfs /usr/local/bin/rustfs
 COPY --chmod=0644 --chown=bsd:bsd --from=builder /tmp/version /app/version
 
 COPY root/ /
