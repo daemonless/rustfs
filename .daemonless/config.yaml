@@ -12,7 +12,7 @@ build:
       default: true
 
 cit:
-  mode: health
+  mode: screenshot
   port: 9001
   health: /rustfs/console/health
   ready: "Starting RustFS"
