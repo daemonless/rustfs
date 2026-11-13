@@ -1,0 +1,19 @@
+# dbuild configuration file
+# Full reference: https://github.com/daemonless/dbuild
+
+build:
+  architectures:
+    - amd64
+    - aarch64
+  variants:
+    - tag: latest
+      containerfile: Containerfile
+      tag_desc: "Built from latest upstream source release."
+      default: true
+
+cit:
+  mode: health
+  port: 9001
+  health: /rustfs/console/health
+  ready: "Starting RustFS"
+  wait: 120

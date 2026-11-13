@@ -1,0 +1,65 @@
+#!/bin/sh
+# Start RustFS; /init has already dropped to the configured run user.
+
+set -eu
+
+export HOME=/config
+
+# Unset empty compose interpolations (e.g. RUSTFS_SECRET_KEY="") so RustFS
+# never rejects an empty string and our /config/secrets.env fallback engages.
+if [ -z "${RUSTFS_ACCESS_KEY:-}" ]; then
+    unset RUSTFS_ACCESS_KEY || true
+fi
+if [ -z "${RUSTFS_SECRET_KEY:-}" ]; then
+    unset RUSTFS_SECRET_KEY || true
+fi
+
+SECRETS_FILE="/config/secrets.env"
+if [ -r "${SECRETS_FILE}" ]; then
+    # shellcheck disable=SC1090
+    . "${SECRETS_FILE}"
+    if [ -n "${SAVED_RUSTFS_ACCESS_KEY:-}" ] && [ -z "${RUSTFS_ACCESS_KEY:-}" ] && [ -z "${RUSTFS_ACCESS_KEY_FILE:-}" ]; then
+        export RUSTFS_ACCESS_KEY="${SAVED_RUSTFS_ACCESS_KEY}"
+    fi
+    if [ -n "${SAVED_RUSTFS_SECRET_KEY:-}" ] && [ -z "${RUSTFS_SECRET_KEY:-}" ] && [ -z "${RUSTFS_SECRET_KEY_FILE:-}" ]; then
+        export RUSTFS_SECRET_KEY="${SAVED_RUSTFS_SECRET_KEY}"
+    fi
+fi
+
+NEED_SAVE=false
+if [ -z "${RUSTFS_ACCESS_KEY:-}" ] && [ -z "${RUSTFS_ACCESS_KEY_FILE:-}" ]; then
+    export RUSTFS_ACCESS_KEY="admin"
+    NEED_SAVE=true
+fi
+if [ -z "${RUSTFS_SECRET_KEY:-}" ] && [ -z "${RUSTFS_SECRET_KEY_FILE:-}" ]; then
+    export RUSTFS_SECRET_KEY="$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    NEED_SAVE=true
+fi
+
+if [ "${NEED_SAVE}" = "true" ] && [ -w "/config" ]; then
+    (
+        umask 077
+        cat <<EOF > "${SECRETS_FILE}"
+SAVED_RUSTFS_ACCESS_KEY='${RUSTFS_ACCESS_KEY}'
+SAVED_RUSTFS_SECRET_KEY='${RUSTFS_SECRET_KEY}'
+EOF
+    )
+    echo "[rustfs] Persisted initial root credentials in ${SECRETS_FILE}"
+fi
+
+export RUSTFS_VOLUMES="${RUSTFS_VOLUMES:-/data}"
+export RUSTFS_ADDRESS="${RUSTFS_ADDRESS:-0.0.0.0:9000}"
+export RUSTFS_CONSOLE_ADDRESS="${RUSTFS_CONSOLE_ADDRESS:-0.0.0.0:9001}"
+export RUSTFS_CONSOLE_ENABLE="${RUSTFS_CONSOLE_ENABLE:-true}"
+
+for vol in ${RUSTFS_VOLUMES}; do
+    case "${vol}" in
+        *\{*\}*) ;;
+        /*) [ -d "${vol}" ] || mkdir -p "${vol}" 2>/dev/null || true ;;
+    esac
+done
+
+echo "[rustfs] Starting RustFS server (S3: ${RUSTFS_ADDRESS}, Console: ${RUSTFS_CONSOLE_ADDRESS})..."
+cd /data
+# shellcheck disable=SC2086
+exec /usr/local/bin/rustfs server ${RUSTFS_ARGS:-}

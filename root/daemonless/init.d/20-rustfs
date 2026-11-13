@@ -1,0 +1,16 @@
+#!/bin/sh
+# Prepare RustFS directories and ownership after 10-usermod updates bsd UID/GID.
+
+mkdir -p /config /data/.rustfs/events /data/.rustfs/audit /opt/rustfs
+ln -sf /data/.rustfs/events /opt/rustfs/events
+ln -sf /data/.rustfs/audit /opt/rustfs/audit
+
+want="$(id -u bsd):$(id -g bsd)"
+chown -R bsd:bsd /config
+
+have_data="$(stat -f '%u:%g' /data 2>/dev/null)"
+if [ "${have_data}" != "${want}" ]; then
+    chown -R bsd:bsd /data
+else
+    chown -R bsd:bsd /data/.rustfs
+fi

@@ -1,0 +1,22 @@
+name: Build FreeBSD Container
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['*.md', 'LICENSE', '.gitignore']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: read
+
+jobs:
+  build:
+    uses: daemonless/dbuild/.github/workflows/daemonless-build.yaml@main
+    with:
+      image_name: rustfs
+    secrets: inherit

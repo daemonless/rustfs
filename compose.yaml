@@ -1,0 +1,95 @@
+name: rustfs
+
+x-daemonless:
+  title: "RustFS"
+  icon: ":material-bucket-outline:"
+  category: "Network"
+  description: "High-performance, distributed S3-compatible object storage system written in Rust with an integrated web management console."
+  upstream_url: "https://github.com/rustfs/rustfs"
+  web_url: "https://rustfs.com/"
+  freshports_url: "https://www.freshports.org/www/rustfs/"
+  user: "bsd"
+  mlock: false
+  upstream_binary: false
+  appjail: true
+  community: "Discord:https://discord.gg/Kb9tkhecZT"
+
+  docs:
+    env:
+      PUID: "User ID for the application process"
+      PGID: "Group ID for the application process"
+      TZ: "Timezone for the container"
+      RUSTFS_ACCESS_KEY:
+        desc: "Root S3 access key and Web Console sign-in username"
+        type: string
+        optional: true
+      RUSTFS_SECRET_KEY: "Root S3 secret key and Web Console password (generated into /config/secrets.env if unset)"
+      RUSTFS_SERVER_DOMAINS:
+        desc: "Comma-separated domain names for virtual-hosted-style S3 requests, e.g. s3.example.com"
+        optional: true
+        level: options
+      RUSTFS_REGION:
+        desc: "S3 region reported to clients"
+        optional: true
+        level: options
+      RUSTFS_VOLUMES:
+        desc: "Space-separated data directories or distributed cluster endpoints"
+        optional: true
+        level: advanced
+      RUSTFS_ARGS:
+        desc: "Additional command-line arguments passed to rustfs server"
+        optional: true
+        level: advanced
+    volumes:
+      /config: "Persisted root credentials (/config/secrets.env) and configuration"
+      /data: "Object storage data directory"
+    ports:
+      9001: "Web Console"
+      9000: "S3 API"
+
+  notes: |
+    ## Credentials and Web Console
+
+    Open the Web Console on port **9001** (`http://<your-host>:9001`).
+
+    If `RUSTFS_SECRET_KEY` is not set at first boot, the launcher generates a
+    random root secret key and saves it in `/config/secrets.env` (mode `0600`)
+    so the container never runs with upstream's public `rustfsadmin` default.
+    Read `/config/secrets.env` inside the container or host volume to view the
+    generated credentials, or set `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY`
+    explicitly before first start.
+
+    ## S3 API clients
+
+    Point S3 clients at port **9000** (`http://<your-host>:9000`). Without
+    `RUSTFS_SERVER_DOMAINS`, configure clients for path-style addressing
+    (`force_path_style = true` / `--endpoint-url`). Set `RUSTFS_SERVER_DOMAINS`
+    when routing virtual-hosted bucket subdomains (`<bucket>.s3.example.com`)
+    through a reverse proxy.
+
+    ## FreeBSD notes
+
+    Both listeners default to `0.0.0.0` (`0.0.0.0:9000` and `0.0.0.0:9001`)
+    rather than `:9000` / `[::]:9000` because FreeBSD sets
+    `net.inet6.ip6.v6only=1` by default.
+
+services:
+  rustfs:
+    image: ghcr.io/daemonless/rustfs:latest
+    container_name: rustfs
+    restart: always
+
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-admin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY}
+
+    volumes:
+      - /path/to/containers/rustfs/config:/config
+      - /path/to/containers/rustfs/data:/data
+
+    ports:
+      - 9001:9001
+      - 9000:9000

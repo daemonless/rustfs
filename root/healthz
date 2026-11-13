@@ -1,0 +1,13 @@
+#!/bin/sh
+# Daemonless healthcheck for RustFS S3 API and Web Console.
+
+S3_ADDR="${RUSTFS_ADDRESS:-0.0.0.0:9000}"
+S3_PORT="${S3_ADDR##*:}"
+
+fetch -qo /dev/null "http://127.0.0.1:${S3_PORT}/health" >/dev/null 2>&1 || exit 1
+
+if [ "${RUSTFS_CONSOLE_ENABLE:-true}" = "true" ]; then
+    CONSOLE_ADDR="${RUSTFS_CONSOLE_ADDRESS:-0.0.0.0:9001}"
+    CONSOLE_PORT="${CONSOLE_ADDR##*:}"
+    fetch -qo /dev/null "http://127.0.0.1:${CONSOLE_PORT}/rustfs/console/health" >/dev/null 2>&1 || exit 1
+fi

@@ -1,0 +1,131 @@
+ARG BASE_VERSION=15.1
+ARG APP_VERSION=""
+ARG UPSTREAM_URL="https://api.github.com/repos/rustfs/rustfs/releases/latest"
+ARG UPSTREAM_JQ=".tag_name"
+ARG CONSOLE_URL="https://api.github.com/repos/rustfs/console/releases/latest"
+ARG CONSOLE_JQ=".tag_name"
+
+# ---------------------------------------------------------------------------
+# Builder: Rust 1.99+ toolchain on 15.1-latest.
+# www/rustfs requires rust >= 1.99.0 (Cargo edition 2024) and embeds the
+# prebuilt rustfs-console bundle into rustfs/static at compile time.
+# ---------------------------------------------------------------------------
+ARG BUILDER_BASE_VERSION=15.1-latest
+FROM ghcr.io/daemonless/base-exec:${BUILDER_BASE_VERSION} AS builder
+
+ARG APP_VERSION
+ARG UPSTREAM_URL
+ARG UPSTREAM_JQ
+ARG CONSOLE_URL
+ARG CONSOLE_JQ
+
+RUN pkg update && \
+    pkg install -y FreeBSD-set-devel rust pkgconf protobuf cmake-core zstd && \
+    pkg clean -ay && \
+    rm -rf /var/cache/pkg/* /var/db/pkg/repos/*
+
+RUN if [ -z "${APP_VERSION}" ]; then \
+      APP_VERSION=$(fetch -qo - "${UPSTREAM_URL}" | jq -r "${UPSTREAM_JQ}"); \
+    fi && \
+    CONSOLE_TAG=$(fetch -qo - "${CONSOLE_URL}" | jq -r "${CONSOLE_JQ}") && \
+    test -n "${APP_VERSION}" -a "${APP_VERSION}" != "null" && \
+    test -n "${CONSOLE_TAG}" -a "${CONSOLE_TAG}" != "null" && \
+    VERSION="${APP_VERSION#v}" && \
+    echo "Building RustFS ${VERSION} with console ${CONSOLE_TAG}" && \
+    echo "${VERSION}" > /tmp/version && \
+    fetch -qo /tmp/rustfs.tar.gz \
+      "https://github.com/rustfs/rustfs/archive/refs/tags/${APP_VERSION}.tar.gz" && \
+    mkdir -p /src && \
+    tar -C /src -xzf /tmp/rustfs.tar.gz --strip-components 1 && \
+    rm -f /tmp/rustfs.tar.gz && \
+    fetch -qo /tmp/console.zip \
+      "https://github.com/rustfs/console/releases/download/${CONSOLE_TAG}/rustfs-console-${CONSOLE_TAG}.zip" && \
+    mkdir -p /src/rustfs/static && \
+    tar -C /src/rustfs/static -xf /tmp/console.zip && \
+    test -f /src/rustfs/static/index.html && \
+    rm -f /tmp/console.zip
+
+WORKDIR /src
+ENV CARGO_INCREMENTAL=0 \
+    CARGO_PROFILE_RELEASE_DEBUG=false \
+    CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off \
+    CARGO_PROFILE_RELEASE_STRIP=symbols
+
+RUN VERSION=$(cat /tmp/version) && \
+    RUSTFS_BUILD_VERSION="${VERSION}" cargo build --release --locked --package rustfs && \
+    chmod 0755 /src/target/release/rustfs /src/target/release/rustfs-cli && \
+    /src/target/release/rustfs --version
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+FROM ghcr.io/daemonless/base-exec:${BASE_VERSION}
+
+ARG FREEBSD_ARCH=amd64
+ARG APP_VERSION
+ARG UPSTREAM_URL
+ARG UPSTREAM_JQ
+ARG PACKAGES="ca_root_nss zstd"
+{%- if ports %}
+ARG HEALTHCHECK_ENDPOINT="http://127.0.0.1:9001/rustfs/console/health"
+{%- else %}
+ARG HEALTHCHECK_ENDPOINT="http://127.0.0.1:9001/rustfs/console/health"
+{%- endif %}
+
+ENV HEALTHCHECK_URL="${HEALTHCHECK_ENDPOINT}" \
+    RUSTFS_VOLUMES="/data" \
+    RUSTFS_ADDRESS="0.0.0.0:9000" \
+    RUSTFS_CONSOLE_ADDRESS="0.0.0.0:9001" \
+    RUSTFS_CONSOLE_ENABLE="true" \
+    RUSTFS_OBS_ENVIRONMENT="production"
+
+LABEL org.opencontainers.image.title="{{ title }}" \
+      org.opencontainers.image.description="{{ description }}" \
+      org.opencontainers.image.source="{{ repo_url }}" \
+      org.opencontainers.image.url="{{ web_url }}" \
+      org.opencontainers.image.documentation="https://docs.rustfs.com/" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="daemonless" \
+      org.opencontainers.image.authors="daemonless" \
+      io.daemonless.category="{{ category }}" \
+{%- if ports %}
+      io.daemonless.port="9001" \
+{%- endif %}
+{%- if volumes %}
+      io.daemonless.volumes="{{ volumes | map(attribute='path') | join(',') }}" \
+{%- endif %}
+      io.daemonless.arch="${FREEBSD_ARCH}" \
+      io.daemonless.pkg-source="source" \
+      io.daemonless.upstream-url="${UPSTREAM_URL}" \
+      io.daemonless.upstream-jq="${UPSTREAM_JQ}" \
+      io.daemonless.healthcheck-url="${HEALTHCHECK_ENDPOINT}" \
+      io.daemonless.packages="${PACKAGES}"
+
+RUN pkg update && \
+    pkg install -y ${PACKAGES} && \
+    pkg clean -ay && \
+    rm -rf /var/cache/pkg/* /var/db/pkg/repos/*
+
+RUN mkdir -p /app /config /data/.rustfs/events /data/.rustfs/audit /opt/rustfs && \
+    ln -sf /data/.rustfs/events /opt/rustfs/events && \
+    ln -sf /data/.rustfs/audit /opt/rustfs/audit && \
+    chown -R bsd:bsd /app /config /data && \
+    chmod 0755 /app && \
+    chmod 0750 /config /data
+
+COPY --chmod=0755 --from=builder /src/target/release/rustfs /usr/local/bin/rustfs
+COPY --chmod=0755 --from=builder /src/target/release/rustfs-cli /usr/local/bin/rustfs-cli
+COPY --chmod=0644 --chown=bsd:bsd --from=builder /tmp/version /app/version
+
+COPY root/ /
+RUN chmod +x /daemonless/init.d/* /daemonless/libexec/rustfs /healthz
+
+CMD ["/daemonless/libexec/rustfs"]
+
+{%- if ports %}
+EXPOSE {{ ports | map(attribute='port') | join(' ') }}
+{%- endif %}
+
+{%- if volumes %}
+VOLUME {{ volumes | map(attribute='path') | join(' ') }}
+{%- endif %}
