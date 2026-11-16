@@ -1,11 +1,11 @@
 {
-  "generated": "2026-11-13T19:39:13Z",
+  "generated": "2026-11-16T12:05:19Z",
   "image": "rustfs",
   "tags": {
     "latest-amd64": {
-      "app_version": "1.0.5",
+      "app_version": "1.0.6",
       "arch": "amd64",
-      "generated": "2026-11-13T19:38:12Z",
+      "generated": "2026-11-16T12:04:24Z",
       "packages": {
         "dotnet": [],
         "freebsd": [
@@ -281,7 +281,7 @@
               "BSD2CLAUSE"
             ],
             "name": "pkg",
-            "version": "2.8.4"
+            "version": "2.9.2"
           },
           {
             "licenses": [
