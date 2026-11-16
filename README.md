@@ -206,7 +206,7 @@ rather than `:9000` / `[::]:9000` because FreeBSD sets
 `net.inet6.ip6.v6only=1` by default.
 
 
-**Architectures:** amd64, aarch64
+**Architectures:** amd64
 **User:** `bsd` (UID/GID via PUID/PGID, defaults to 1000:1000)
 **Base:** FreeBSD 15.1
 
