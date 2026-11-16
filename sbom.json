@@ -1,11 +1,11 @@
 {
-  "generated": "2026-11-16T12:05:19Z",
+  "generated": "2026-11-16T13:09:54Z",
   "image": "rustfs",
   "tags": {
-    "latest-amd64": {
+    "latest": {
       "app_version": "1.0.6",
       "arch": "amd64",
-      "generated": "2026-11-16T12:04:24Z",
+      "generated": "2026-11-16T13:09:13Z",
       "packages": {
         "dotnet": [],
         "freebsd": [
